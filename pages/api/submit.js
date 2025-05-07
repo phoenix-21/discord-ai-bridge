@@ -19,7 +19,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: 'openai/gpt-4',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 500 // <= Reduced token limit to stay within credit cap
+        max_tokens: 450 // <= Reduced token limit to stay within credit cap
       }),
     });
 
