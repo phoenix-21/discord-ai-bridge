@@ -14,11 +14,12 @@ export default async function handler(req, res) {
       headers: {
         'Authorization': `Bearer ${process.env.OPEN_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://yourdomain.com', // optional but good to include
+        'HTTP-Referer': 'https://yourdomain.com', // optional
       },
       body: JSON.stringify({
-        model: 'openai/gpt-4', // or other model like 'anthropic/claude-3-opus'
+        model: 'openai/gpt-4',
         messages: [{ role: 'user', content: prompt }],
+        max_tokens: 500 // <= Reduced token limit to stay within credit cap
       }),
     });
 
@@ -30,6 +31,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ id });
   } catch (err) {
+    console.error('OpenRouter request failed:', err);
     res.status(500).json({ error: 'OpenRouter request failed' });
   }
 }
