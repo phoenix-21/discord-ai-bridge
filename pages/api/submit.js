@@ -9,17 +9,16 @@ export default async function handler(req, res) {
   }
 
   try {
-    const openaiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPEN_API_KEY}`,
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://yourdomain.com', // optional
       },
       body: JSON.stringify({
-        model: 'openai/gpt-4',
+        model: 'gpt-3.5-turbo', // Or use gpt-3.5-turbo if needed
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 450 // <= Reduced token limit to stay within credit cap
+        max_tokens: 450,
       }),
     });
 
@@ -31,7 +30,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ id });
   } catch (err) {
-    console.error('OpenRouter request failed:', err);
-    res.status(500).json({ error: 'OpenRouter request failed' });
+    console.error('OpenAI request failed:', err);
+    res.status(500).json({ error: 'OpenAI request failed' });
   }
 }
