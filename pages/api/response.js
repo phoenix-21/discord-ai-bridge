@@ -32,7 +32,7 @@ export default async function handler(req, res) {
 
     let translatedMessage = originalMessage;
 
-    if (detectedLang !== 'en') {
+    if (detectedLang !== 'es') {
       const translationResponse = await fetch('https://libretranslate.de/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
