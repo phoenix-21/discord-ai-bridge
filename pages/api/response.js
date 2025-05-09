@@ -20,27 +20,27 @@ export default async function handler(req, res) {
   const originalMessage = data[0].message;
 
   try {
-    const translationResponse = await fetch('https://translate.argosopentech.com/translate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const response = await fetch("https://libretranslate.com/translate", {
+      method: "POST",
       body: JSON.stringify({
         q: originalMessage,
-        source: 'auto',
-        target: 'en',
-        format: 'text'
-      })
+        source: "auto",
+        target: "en",
+        format: "text",
+        alternatives: 3,
+        api_key: ""
+      }),
+      headers: { "Content-Type": "application/json" }
     });
 
-    if (!translationResponse.ok) {
-      throw new Error(`Translation API error: ${translationResponse.statusText}`);
-    }
+    const result = await response.json();
 
-    const translationData = await translationResponse.json();
-    const translatedMessage = translationData.translatedText || originalMessage;
+    const translatedMessage = result.translatedText || originalMessage;
 
     res.status(200).json({
       messages: [{ response: translatedMessage }]
     });
+
   } catch (err) {
     res.status(500).json({ error: 'Translation failed', detail: err.message });
   }
