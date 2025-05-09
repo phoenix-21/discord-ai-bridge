@@ -1,35 +1,41 @@
-export const config = {
-  api: {
-    bodyParser: false, // Disable default JSON body parser
-  },
-};
-
 import { supabase } from '../../lib/supabaseClient';
-import getRawBody from 'raw-body';
+import { Translate } from '@google-cloud/translate').v2;
+
+// Initialize Google Cloud Translate
+const translate = new Translate();
 
 export default async function handler(req, res) {
-  if (req.method === 'POST') {
-    try {
-      const rawBody = await getRawBody(req);
-      const message = rawBody.toString().trim();
+  const { data, error } = await supabase
+    .from('messages')
+    .select('message')
+    .order('id', { ascending: false })
+    .limit(1);
 
-      if (!message) {
-        return res.status(400).json({ error: 'No message provided' });
-      }
-
-      const { error } = await supabase
-        .from('messages')
-        .insert([{ message }]);
-
-      if (error) {
-        return res.status(500).json({ error: error.message });
-      }
-
-      res.status(200).json({ status: 'Message stored' });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to read body' });
-    }
-  } else {
-    res.status(405).json({ error: 'Method not allowed' });
+  if (error) {
+    return res.status(500).json({ error: error.message });
   }
+
+  let responseMessage = data.length === 0 ? 'No messages yet.' : data[0].message;
+
+  try {
+    // Detect language
+    const [detection] = await translate.detect(responseMessage);
+    const detectedLang = Array.isArray(detection) ? detection[0].language : detection.language;
+
+    // Translate if not English
+    if (detectedLang !== 'en') {
+      const [translated] = await translate.translate(responseMessage, 'en');
+      responseMessage = translated;
+    }
+  } catch (translateError) {
+    return res.status(500).json({ error: 'Translation failed', detail: translateError.message });
+  }
+
+  res.status(200).json({
+    messages: [
+      {
+        response: responseMessage
+      }
+    ]
+  });
 }
