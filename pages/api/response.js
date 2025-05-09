@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     });
 
     const detectionData = await detectionResponse.json();
-    const detectedLang = detectionData[0]?.language || 'en';
+    const detectedLang = detectionData[0]?.language || 'es';
 
     let translatedMessage = originalMessage;
 
