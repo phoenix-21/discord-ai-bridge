@@ -20,34 +20,23 @@ export default async function handler(req, res) {
   const originalMessage = data[0].message;
 
   try {
-    // Step 1: Detect language
-    const detectionResponse = await fetch('https://libretranslate.de/detect', {
+    const translationResponse = await fetch('https://translate.argosopentech.com/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: originalMessage })
+      body: JSON.stringify({
+        q: originalMessage,
+        source: 'auto',
+        target: 'en',
+        format: 'text'
+      })
     });
 
-    const detectionData = await detectionResponse.json();
-    const detectedLang = detectionData[0]?.language || 'en';
-
-    let translatedMessage = originalMessage;
-
-    // Step 2: Translate if not English
-    if (detectedLang !== 'en') {
-      const translationResponse = await fetch('https://libretranslate.de/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          q: originalMessage,
-          source: detectedLang,
-          target: 'en',
-          format: 'text'
-        })
-      });
-
-      const translationData = await translationResponse.json();
-      translatedMessage = translationData.translatedText || originalMessage;
+    if (!translationResponse.ok) {
+      throw new Error(`Translation API error: ${translationResponse.statusText}`);
     }
+
+    const translationData = await translationResponse.json();
+    const translatedMessage = translationData.translatedText || originalMessage;
 
     res.status(200).json({
       messages: [{ response: translatedMessage }]
