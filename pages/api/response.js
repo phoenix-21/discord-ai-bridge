@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
   // Detect language and translate if not English
   try {
-    const detectionResponse = await fetch('https://libretranslate.de/detect', {
+    const detectionResponse = await fetch('https://libretranslate.com/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ q: originalMessage })
