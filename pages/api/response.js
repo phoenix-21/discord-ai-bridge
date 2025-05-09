@@ -11,9 +11,11 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error.message });
   }
 
-  if (data.length === 0) {
-    return res.status(200).json({ response: 'No messages yet.' });
-  }
+  const responseMessage = data.length === 0 ? 'No messages yet.' : data[0].message;
 
-  res.status(200).json({ response: data[0].message });
+  res.status(200).json({
+    messages: {
+      response: responseMessage
+    }
+  });
 }
