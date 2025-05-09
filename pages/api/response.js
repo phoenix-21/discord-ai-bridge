@@ -19,20 +19,21 @@ export default async function handler(req, res) {
 
   const originalMessage = data[0].message;
 
-  // Detect language and translate if not English
   try {
-    const detectionResponse = await fetch('https://libretranslate.com/translate', {
+    // Step 1: Detect language
+    const detectionResponse = await fetch('https://libretranslate.de/detect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ q: originalMessage })
     });
 
     const detectionData = await detectionResponse.json();
-    const detectedLang = detectionData[0]?.language || 'es';
+    const detectedLang = detectionData[0]?.language || 'en';
 
     let translatedMessage = originalMessage;
 
-    if (detectedLang !== 'es') {
+    // Step 2: Translate if not English
+    if (detectedLang !== 'en') {
       const translationResponse = await fetch('https://libretranslate.de/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
