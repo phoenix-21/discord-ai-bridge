@@ -1,8 +1,8 @@
 import { supabase } from '../../lib/supabaseClient';
-import { Translate } from '@google-cloud/translate').v2;
+import { v2 as TranslateV2 } from '@google-cloud/translate';
 
 // Initialize Google Cloud Translate
-const translate = new Translate();
+const translate = new TranslateV2();
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
