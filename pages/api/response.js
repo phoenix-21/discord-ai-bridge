@@ -1,8 +1,4 @@
 import { supabase } from '../../lib/supabaseClient';
-import { v2 as TranslateV2 } from '@google-cloud/translate';
-
-// Initialize Google Cloud Translate
-const translate = new TranslateV2();
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -18,6 +14,10 @@ export default async function handler(req, res) {
   let responseMessage = data.length === 0 ? 'No messages yet.' : data[0].message;
 
   try {
+    // Dynamically import Translate API to avoid build errors
+    const { v2: Translate } = await import('@google-cloud/translate');
+    const translate = new Translate.Translate();
+
     // Detect language
     const [detection] = await translate.detect(responseMessage);
     const detectedLang = Array.isArray(detection) ? detection[0].language : detection.language;
