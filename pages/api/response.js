@@ -11,31 +11,47 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error.message });
   }
 
-  let responseMessage = data.length === 0 ? 'No messages yet.' : data[0].message;
-
-  try {
-  const { v2: Translate } = await import('@google-cloud/translate');
-  
-  // Load credentials from environment variable
-  const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-  const translate = new Translate.Translate({ credentials });
-
-  const [detection] = await translate.detect(responseMessage);
-  const detectedLang = Array.isArray(detection) ? detection[0].language : detection.language;
-
-  if (detectedLang !== 'en') {
-    const [translated] = await translate.translate(responseMessage, 'en');
-    responseMessage = translated;
+  if (!data || data.length === 0) {
+    return res.status(200).json({
+      messages: [{ response: 'No messages yet.' }]
+    });
   }
-} catch (translateError) {
-  return res.status(500).json({ error: 'Translation failed', detail: translateError.message });
-}
 
-  res.status(200).json({
-    messages: [
-      {
-        response: responseMessage
-      }
-    ]
-  });
+  const originalMessage = data[0].message;
+
+  // Detect language and translate if not English
+  try {
+    const detectionResponse = await fetch('https://libretranslate.de/detect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q: originalMessage })
+    });
+
+    const detectionData = await detectionResponse.json();
+    const detectedLang = detectionData[0]?.language || 'en';
+
+    let translatedMessage = originalMessage;
+
+    if (detectedLang !== 'en') {
+      const translationResponse = await fetch('https://libretranslate.de/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          q: originalMessage,
+          source: detectedLang,
+          target: 'en',
+          format: 'text'
+        })
+      });
+
+      const translationData = await translationResponse.json();
+      translatedMessage = translationData.translatedText || originalMessage;
+    }
+
+    res.status(200).json({
+      messages: [{ response: translatedMessage }]
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Translation failed', detail: err.message });
+  }
 }
