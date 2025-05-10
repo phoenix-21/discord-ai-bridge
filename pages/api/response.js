@@ -1,15 +1,5 @@
 import { supabase } from '../../lib/supabaseClient';
 
-// Supported languages with common words for detection
-const LANGUAGE_DETECTION = {
-  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'],
-  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'],
-  fr: ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'],
-  de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich']
-};
-
-const DEFAULT_SOURCE_LANG = 'es'; // Fallback to Spanish if detection fails
-
 export default async function handler(req, res) {
   const { data, error } = await supabase
     .from('messages')
@@ -21,6 +11,8 @@ export default async function handler(req, res) {
   if (!data?.length) return res.status(200).json({ messages: [{ response: 'No messages.' }] });
 
   const { id, message: originalMessage, translated_message } = data[0];
+  
+  // If we already have a translation in the database, return it
   if (translated_message) {
     return res.status(200).json({ 
       messages: [{ 
@@ -33,81 +25,61 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Improved language detection using word frequency
-    function detectLanguage(text) {
-      if (!text || typeof text !== 'string') return null;
-      
-      const textLower = text.toLowerCase();
-      let bestMatch = { lang: null, score: 0 };
-      
-      for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
-        const score = words.filter(word => 
-          new RegExp(`\\b${word}\\b`).test(textLower)
-        ).length;
-        
-        if (score > bestMatch.score) {
-          bestMatch = { lang, score };
-        }
-      }
-      
-      // Only return if we have reasonable confidence
-      return bestMatch.score >= 3 ? bestMatch.lang : null;
-    }
+    // First check if existing translations are already in English
+    const checkUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
+    const checkResponse = await fetch(checkUrl);
+    const checkResult = await checkResponse.json();
 
-    // Step 1: Detect language
-    const detectedLang = detectLanguage(originalMessage);
-    const sourceLang = detectedLang || DEFAULT_SOURCE_LANG;
-    const isConfident = !!detectedLang;
+    // Check if any existing translations target English
+    const hasEnglishTranslation = checkResult.matches?.some(match => 
+      match.target && (match.target.startsWith('en-US') || match.target.startsWith('en-GB'))
+    );
 
-    // Step 2: If detected as English, return original
-    if (detectedLang === 'en') {
+    // If English translation exists, use the best match
+    if (hasEnglishTranslation) {
+      const bestMatch = checkResult.matches.reduce((best, current) => 
+        (current.match > (best?.match || 0)) ? current : best, null);
+      
+      const translatedText = bestMatch?.translation || originalMessage;
+      const sourceLang = bestMatch?.source?.split('-')[0] || 'unknown';
+
       await supabase
         .from('messages')
         .update({ 
-          translated_message: originalMessage,
-          original_language: 'en',
-          detection_confidence: 'high'
+          translated_message: translatedText,
+          original_language: sourceLang
         })
         .eq('id', id);
 
       return res.status(200).json({ 
         messages: [{ 
-          response: originalMessage, 
-          original_language: 'en',
-          detection_confidence: 'high'
+          response: translatedText, 
+          original_language: sourceLang
         }]
       });
     }
 
-    // Step 3: Translate using detected or default language
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
-    
+    // If no English translation exists, perform translation
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=auto|en&key=${MYMEMORY_API_KEY}`;
     const translateResponse = await fetch(translateUrl);
-    if (!translateResponse.ok) {
-      throw new Error(`API request failed with status ${translateResponse.status}`);
-    }
-
     const translateResult = await translateResponse.json();
+
     const translatedText = translateResult.responseData?.translatedText || originalMessage;
+    const sourceLang = translateResult.responseData?.detectedSourceLanguage || 'unknown';
 
-    // Get final language (may differ from our detection)
-    const finalLang = translateResult.responseData?.detectedSourceLanguage || sourceLang;
-
-    // Store results
+    // Store the new translation
     await supabase
       .from('messages')
       .update({ 
         translated_message: translatedText,
-        original_language: finalLang,
-        detection_confidence: isConfident ? 'medium' : 'low'
+        original_language: sourceLang
       })
       .eq('id', id);
 
     res.status(200).json({ 
       messages: [{ 
         response: translatedText, 
-        original_language: finalLang,
-        detection_confidence: isConfident ? 'medium' : 'low'
+        original_language: sourceLang
       }]
     });
   } catch (err) {
@@ -117,16 +89,14 @@ export default async function handler(req, res) {
       .from('messages')
       .update({ 
         translated_message: originalMessage,
-        original_language: 'unknown',
-        detection_confidence: 'low'
+        original_language: 'unknown'
       })
       .eq('id', id);
 
     res.status(200).json({ 
       messages: [{ 
         response: originalMessage, 
-        original_language: 'unknown',
-        detection_confidence: 'low'
+        original_language: 'unknown'
       }]
     });
   }
