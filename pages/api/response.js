@@ -99,7 +99,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 3: For non-English messages or undetected messages (including German)
+    // Step 3: Determine source language for translation
     let sourceLang = detectedLang;
     let translationNeeded = true;
 
@@ -113,9 +113,6 @@ export default async function handler(req, res) {
       if ((englishWordCount / wordCount) > 0.3) {
         sourceLang = 'en';
         translationNeeded = false;
-      } else {
-        // If we can't detect, default to German ('de') since that's what we want to translate
-        sourceLang = 'de';
       }
     }
 
@@ -138,8 +135,8 @@ export default async function handler(req, res) {
     }
 
     // Step 4: Translate to English
-    // Use detected language if available, otherwise default to German
-    const langPair = sourceLang ? `${sourceLang}|en` : 'de|en';
+    // If we detected a language, use that. Otherwise, let MyMemory auto-detect.
+    const langPair = sourceLang ? `${sourceLang}|en` : 'en|en';
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${langPair}&key=${MYMEMORY_API_KEY}`;
     
     const translateResponse = await fetch(translateUrl);
@@ -148,8 +145,14 @@ export default async function handler(req, res) {
     }
 
     const translateResult = await translateResponse.json();
-    const translatedText = translateResult.responseData?.translatedText || originalMessage;
-    const finalSourceLang = translateResult.responseData?.detectedSourceLanguage || sourceLang || 'de';
+    let translatedText = originalMessage;
+    let finalSourceLang = 'unknown';
+
+    if (translateResult.responseData) {
+      translatedText = translateResult.responseData.translatedText || originalMessage;
+      finalSourceLang = translateResult.responseData.detectedSourceLanguage || 
+                       (sourceLang ? sourceLang : 'unknown');
+    }
 
     // Store results
     await supabase
