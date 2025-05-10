@@ -13,7 +13,7 @@ const LANGUAGE_DETECTION = {
   ja: ['の', 'に', 'は', 'を', 'た', 'が', 'で', 'し', 'て', 'ます'],
   ru: ['и', 'в', 'не', 'на', 'я', 'что', 'он', 'с', 'по', 'как'],
   es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'],
-  de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich']  // Added German
+  de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich', 'wir', 'haben', 'eine', 'nicht', 'ist', 'auch', 'man', 'was', 'wie', 'gibt', 'mehr', 'ich', 'du', 'es', 'sein', 'große', 'gestern', 'gegessen']
 };
 
 // Special characters for CJK and Arabic scripts
@@ -93,6 +93,7 @@ export default async function handler(req, res) {
 
     // Step 1: Detect language
     const detectedLang = detectLanguage(originalMessage);
+    console.log('Detected language:', detectedLang);
     
     // Step 2: If message is English, return as-is
     if (detectedLang === 'en') {
@@ -154,6 +155,7 @@ export default async function handler(req, res) {
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
     
     const translateResponse = await fetch(translateUrl);
+    console.log('Translate URL:', translateUrl);
     if (!translateResponse.ok) {
       throw new Error(`API request failed with status ${translateResponse.status}`);
     }
