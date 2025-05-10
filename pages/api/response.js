@@ -29,27 +29,57 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // First check if the message is likely English
-    function isLikelyEnglish(text) {
-      const englishWords = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'];
-      const wordCount = text.split(/\s+/).length;
-      const englishWordCount = englishWords.filter(word => 
-        new RegExp(`\\b${word}\\b`, 'i').test(text)
-      ).length;
-      return (englishWordCount / wordCount) > 0.3; // 30% English words
+    // Improved language detection with multiple fallbacks
+    async function detectLanguage(text) {
+      try {
+        // Try MyMemory detection first
+        const detectUrl = `https://api.mymemory.translated.net/detect?q=${encodeURIComponent(text)}&key=${MYMEMORY_API_KEY}`;
+        const detectResponse = await fetch(detectUrl);
+        const detectResult = await detectResponse.json();
+        
+        // Check various response formats
+        let detectedLang = detectResult.responseData?.detectedLanguage?.language ||
+                         detectResult.responseData?.matches?.[0]?.language ||
+                         detectResult.responseData?.detectedSourceLanguage;
+
+        // Validate it's a supported 2-letter code
+        if (detectedLang && SUPPORTED_LANGUAGES.has(detectedLang.toLowerCase())) {
+          return detectedLang.toLowerCase();
+        }
+
+        // Fallback to simple English detection
+        const englishWords = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'];
+        const isLikelyEnglish = englishWords.some(word => 
+          new RegExp(`\\b${word}\\b`, 'i').test(text)
+        );
+        if (isLikelyEnglish) return 'en';
+
+        // If still not detected, try a translation with generic language pair
+        const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=es|en&key=${MYMEMORY_API_KEY}`;
+        const translateResponse = await fetch(translateUrl);
+        const translateResult = await translateResponse.json();
+        
+        const finalLang = translateResult.responseData?.detectedSourceLanguage;
+        if (finalLang && SUPPORTED_LANGUAGES.has(finalLang.toLowerCase())) {
+          return finalLang.toLowerCase();
+        }
+
+        return null;
+      } catch (e) {
+        console.error('Language detection failed:', e);
+        return null;
+      }
     }
 
-    // Step 1: Check if message is English
-    if (isLikelyEnglish(originalMessage)) {
-      await supabase
-        .from('messages')
-        .update({ 
-          translated_message: originalMessage,
-          original_language: 'en',
-          detection_confidence: 'high'
-        })
-        .eq('id', id);
+    // Detect language with our improved function
+    let detectedLang = await detectLanguage(originalMessage);
 
+    // If we can't detect, default to Spanish (most common case) but indicate uncertainty
+    const sourceLang = detectedLang || 'es';
+    const isLanguageCertain = !!detectedLang;
+
+    // If detected as English, return original
+    if (detectedLang === 'en') {
       return res.status(200).json({ 
         messages: [{ 
           response: originalMessage, 
@@ -59,51 +89,30 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 2: Try translation with generic language pair to get detection
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=auto|en&key=${MYMEMORY_API_KEY}`;
+    // Translate using detected language
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
     const translateResponse = await fetch(translateUrl);
     const translateResult = await translateResponse.json();
 
-    // Get detected language from translation response
-    let detectedLang = translateResult.responseData?.detectedSourceLanguage;
-    
-    // Validate the detected language
-    if (!detectedLang || !SUPPORTED_LANGUAGES.has(detectedLang.toLowerCase())) {
-      detectedLang = null;
-    }
-
-    // Step 3: If we got a valid detection, use it for a more accurate translation
-    let finalTranslation = translateResult.responseData?.translatedText || originalMessage;
-    let finalLang = detectedLang || 'unknown';
-    let confidence = detectedLang ? 'medium' : 'low';
-
-    if (detectedLang && detectedLang !== 'en') {
-      // Retry with the detected language for better quality
-      const refinedUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${detectedLang}|en&key=${MYMEMORY_API_KEY}`;
-      const refinedResponse = await fetch(refinedUrl);
-      const refinedResult = await refinedResponse.json();
-      
-      if (refinedResult.responseData?.translatedText) {
-        finalTranslation = refinedResult.responseData.translatedText;
-        confidence = 'high';
-      }
-    }
+    // Get the final translation and detected language
+    const translatedMessage = translateResult.responseData?.translatedText || originalMessage;
+    const finalDetectedLang = translateResult.responseData?.detectedSourceLanguage || sourceLang;
 
     // Store results
     await supabase
       .from('messages')
       .update({ 
-        translated_message: finalTranslation,
-        original_language: finalLang,
-        detection_confidence: confidence
+        translated_message: translatedMessage,
+        original_language: finalDetectedLang,
+        detection_confidence: isLanguageCertain ? 'high' : 'low'
       })
       .eq('id', id);
 
     res.status(200).json({ 
       messages: [{ 
-        response: finalTranslation, 
-        original_language: finalLang,
-        detection_confidence: confidence
+        response: translatedMessage, 
+        original_language: finalDetectedLang,
+        detection_confidence: isLanguageCertain ? 'high' : 'low'
       }]
     });
   } catch (err) {
