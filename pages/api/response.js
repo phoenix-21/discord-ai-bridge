@@ -1,8 +1,8 @@
 import { supabase } from '../../lib/supabaseClient';
 
-// Language detection configuration
+// Enhanced language detection configuration
+const ENGLISH_WORDS = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'];
 const LANGUAGE_DETECTION = {
-  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'],
   es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'],
   fr: ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'],
   de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich']
@@ -33,33 +33,24 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Local language detection function
-    function detectLanguage(text) {
-      if (!text || typeof text !== 'string') return null;
+    // Improved English detection function
+    function isEnglish(text) {
+      if (!text || typeof text !== 'string') return false;
       
       const textLower = text.toLowerCase();
-      let bestMatch = { lang: null, score: 0 };
+      const wordCount = text.split(/\s+/).length;
+      if (wordCount === 0) return false;
       
-      for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
-        const score = words.filter(word => 
-          new RegExp(`\\b${word}\\b`).test(textLower)
-        ).length;
-        
-        if (score > bestMatch.score) {
-          bestMatch = { lang, score };
-        }
-      }
+      const englishWordCount = ENGLISH_WORDS.filter(word => 
+        new RegExp(`\\b${word}\\b`).test(textLower)
+      ).length;
       
-      // Only return if we have reasonable confidence (at least 3 matches)
-      return bestMatch.score >= 3 ? bestMatch.lang : null;
+      // Consider it English if at least 30% of words are English common words
+      return (englishWordCount / wordCount) > 0.3;
     }
 
-    // Step 1: Detect language locally
-    const detectedLang = detectLanguage(originalMessage);
-    const sourceLang = detectedLang || DEFAULT_SOURCE_LANG;
-
-    // Step 2: If detected as English, return original
-    if (detectedLang === 'en') {
+    // Step 1: Check if message is English
+    if (isEnglish(originalMessage)) {
       await supabase
         .from('messages')
         .update({ 
@@ -76,7 +67,30 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 3: Translate using detected or default language
+    // Step 2: For non-English messages, detect source language
+    function detectLanguage(text) {
+      if (!text || typeof text !== 'string') return null;
+      
+      const textLower = text.toLowerCase();
+      let bestMatch = { lang: null, score: 0 };
+      
+      for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
+        const score = words.filter(word => 
+          new RegExp(`\\b${word}\\b`).test(textLower)
+        ).length;
+        
+        if (score > bestMatch.score) {
+          bestMatch = { lang, score };
+        }
+      }
+      
+      return bestMatch.score >= 3 ? bestMatch.lang : null;
+    }
+
+    const detectedLang = detectLanguage(originalMessage);
+    const sourceLang = detectedLang || DEFAULT_SOURCE_LANG;
+
+    // Step 3: Translate non-English to English
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
     
     const translateResponse = await fetch(translateUrl);
@@ -114,7 +128,7 @@ export default async function handler(req, res) {
       .eq('id', id);
 
     res.status(200).json({ 
-      messages: [{ 
+      messages:[{ 
         response: originalMessage, 
         original_language: 'unknown'
       }]
