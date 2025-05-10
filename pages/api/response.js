@@ -1,8 +1,8 @@
 import { supabase } from '../../lib/supabaseClient';
 
-// Enhanced language detection configuration
-const ENGLISH_WORDS = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'];
+// Language detection configuration
 const LANGUAGE_DETECTION = {
+  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'],
   es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'],
   fr: ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'],
   de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich']
@@ -33,41 +33,7 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Improved English detection function
-    function isEnglish(text) {
-      if (!text || typeof text !== 'string') return false;
-      
-      const textLower = text.toLowerCase();
-      const wordCount = text.split(/\s+/).length;
-      if (wordCount === 0) return false;
-      
-      const englishWordCount = ENGLISH_WORDS.filter(word => 
-        new RegExp(`\\b${word}\\b`).test(textLower)
-      ).length;
-      
-      // Consider it English if at least 30% of words are English common words
-      return (englishWordCount / wordCount) > 0.3;
-    }
-
-    // Step 1: Check if message is English
-    if (isEnglish(originalMessage)) {
-      await supabase
-        .from('messages')
-        .update({ 
-          translated_message: originalMessage,
-          original_language: 'en'
-        })
-        .eq('id', id);
-
-      return res.status(200).json({ 
-        messages: [{ 
-          response: originalMessage, 
-          original_language: 'en'
-        }]
-      });
-    }
-
-    // Step 2: For non-English messages, detect source language
+    // Local language detection function
     function detectLanguage(text) {
       if (!text || typeof text !== 'string') return null;
       
@@ -84,13 +50,33 @@ export default async function handler(req, res) {
         }
       }
       
+      // Only return if we have reasonable confidence (at least 3 matches)
       return bestMatch.score >= 3 ? bestMatch.lang : null;
     }
 
+    // Step 1: Detect language locally
     const detectedLang = detectLanguage(originalMessage);
     const sourceLang = detectedLang || DEFAULT_SOURCE_LANG;
 
-    // Step 3: Translate non-English to English
+    // Step 2: If detected as English, return original
+    if (detectedLang === 'en') {
+      await supabase
+        .from('messages')
+        .update({ 
+          translated_message: originalMessage,
+          original_language: 'en'
+        })
+        .eq('id', id);
+
+      return res.status(200).json({ 
+        messages: [{ 
+          response: originalMessage, 
+          original_language: 'en'
+        }]
+      });
+    }
+
+    // Step 3: Translate using detected or default language
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
     
     const translateResponse = await fetch(translateUrl);
@@ -128,7 +114,7 @@ export default async function handler(req, res) {
       .eq('id', id);
 
     res.status(200).json({ 
-      messages:[{ 
+      messages: [{ 
         response: originalMessage, 
         original_language: 'unknown'
       }]
