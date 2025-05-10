@@ -1,5 +1,5 @@
 import { supabase } from '../../lib/supabaseClient';
-import fetch from 'node-fetch'; // Ensure compatibility with Node
+import fetch from 'node-fetch';
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -14,24 +14,19 @@ export default async function handler(req, res) {
   const { id, message: originalMessage, translated_message } = data[0];
   if (translated_message) {
     return res.status(200).json({
-      messages: [{
-        response: translated_message,
-        original_language: 'unknown'
-      }]
+      messages: [{ response: translated_message, original_language: 'unknown' }]
     });
   }
 
-  let detectedLang = 'unknown';
   const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
+  let detectedLang = 'unknown';
 
   try {
     // Try LibreTranslate first
     try {
       const detectResponse = await fetch("https://translate.argosopentech.com/detect", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ q: originalMessage })
       });
       const detectResult = await detectResponse.json();
@@ -39,15 +34,15 @@ export default async function handler(req, res) {
     } catch (libreErr) {
       console.warn("LibreTranslate failed, falling back to MyMemory");
 
-      // Fallback: Try MyMemory detection
+      // Fallback: Try MyMemory
       const detectUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
       const detectResponse = await fetch(detectUrl);
       const detectResult = await detectResponse.json();
       detectedLang = detectResult.responseData?.match?.lang || 'unknown';
     }
 
-    // If already in English, skip translation
-    if (detectedLang === 'en') {
+    // If detection failed or it's English, skip translation
+    if (detectedLang === 'unknown' || detectedLang === 'en') {
       return res.status(200).json({
         messages: [{
           response: originalMessage,
@@ -56,7 +51,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Translate to English
+    // Translate only if valid language code detected
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${detectedLang}|en&key=${MYMEMORY_API_KEY}`;
     const translateResponse = await fetch(translateUrl);
     const translateResult = await translateResponse.json();
