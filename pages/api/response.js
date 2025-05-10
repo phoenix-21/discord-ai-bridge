@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   try {
     // Hardcode source language (e.g., "es" for Spanish)
     const langpair = "es|en"; // Change "es" to your expected input language
-    const apiUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${langpair}`;
+    const apiUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=auto|en&key=lunardrift2@gmail.com`;
     
     const response = await fetch(apiUrl);
     const result = await response.json();
