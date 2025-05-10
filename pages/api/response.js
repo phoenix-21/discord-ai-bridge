@@ -1,9 +1,14 @@
 import { supabase } from '../../lib/supabaseClient';
 
-const SUPPORTED_LANGUAGES = new Set([
-  'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko', 
-  'ar', 'nl', 'pl', 'sv', 'fi', 'da', 'no', 'he', 'hi', 'th'
-]);
+// Supported languages with common words for detection
+const LANGUAGE_DETECTION = {
+  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'],
+  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'],
+  fr: ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'],
+  de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich']
+};
+
+const DEFAULT_SOURCE_LANG = 'es'; // Fallback to Spanish if detection fails
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -20,7 +25,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ 
       messages: [{ 
         response: translated_message, 
-        original_language: 'unknown' 
+        original_language: 'unknown'
       }]
     });
   }
@@ -28,21 +33,34 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // First check if the message is likely English
-    function isLikelyEnglish(text) {
-      if (!text || typeof text !== 'string') return false;
-      const englishWords = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'];
-      const wordCount = text.split(/\s+/).length;
-      if (wordCount === 0) return false;
+    // Improved language detection using word frequency
+    function detectLanguage(text) {
+      if (!text || typeof text !== 'string') return null;
       
-      const englishWordCount = englishWords.filter(word => 
-        new RegExp(`\\b${word}\\b`, 'i').test(text)
-      ).length;
-      return (englishWordCount / wordCount) > 0.3;
+      const textLower = text.toLowerCase();
+      let bestMatch = { lang: null, score: 0 };
+      
+      for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
+        const score = words.filter(word => 
+          new RegExp(`\\b${word}\\b`).test(textLower)
+        ).length;
+        
+        if (score > bestMatch.score) {
+          bestMatch = { lang, score };
+        }
+      }
+      
+      // Only return if we have reasonable confidence
+      return bestMatch.score >= 3 ? bestMatch.lang : null;
     }
 
-    // Step 1: Check if message is English
-    if (isLikelyEnglish(originalMessage)) {
+    // Step 1: Detect language
+    const detectedLang = detectLanguage(originalMessage);
+    const sourceLang = detectedLang || DEFAULT_SOURCE_LANG;
+    const isConfident = !!detectedLang;
+
+    // Step 2: If detected as English, return original
+    if (detectedLang === 'en') {
       await supabase
         .from('messages')
         .update({ 
@@ -61,68 +79,40 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 2: Use translation endpoint which also detects language
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=auto|en&key=${MYMEMORY_API_KEY}`;
+    // Step 3: Translate using detected or default language
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
     
     const translateResponse = await fetch(translateUrl);
     if (!translateResponse.ok) {
-      throw new Error(`Translation API failed with status ${translateResponse.status}`);
+      throw new Error(`API request failed with status ${translateResponse.status}`);
     }
 
-    const translateResult = await translateResponse.json().catch(e => {
-      console.error('JSON parse error:', e);
-      throw new Error('Invalid API response format');
-    });
-
-    // Get detected language and translation
-    const detectedLang = translateResult.responseData?.detectedSourceLanguage;
+    const translateResult = await translateResponse.json();
     const translatedText = translateResult.responseData?.translatedText || originalMessage;
 
-    // Validate detected language
-    const validLang = detectedLang && SUPPORTED_LANGUAGES.has(detectedLang.toLowerCase()) 
-      ? detectedLang.toLowerCase() 
-      : 'unknown';
-
-    // If detected as English but our initial check missed it, trust the API more
-    if (validLang === 'en') {
-      await supabase
-        .from('messages')
-        .update({ 
-          translated_message: originalMessage,
-          original_language: 'en',
-          detection_confidence: 'high'
-        })
-        .eq('id', id);
-
-      return res.status(200).json({ 
-        messages: [{ 
-          response: originalMessage, 
-          original_language: 'en',
-          detection_confidence: 'high'
-        }]
-      });
-    }
+    // Get final language (may differ from our detection)
+    const finalLang = translateResult.responseData?.detectedSourceLanguage || sourceLang;
 
     // Store results
     await supabase
       .from('messages')
       .update({ 
         translated_message: translatedText,
-        original_language: validLang,
-        detection_confidence: validLang !== 'unknown' ? 'medium' : 'low'
+        original_language: finalLang,
+        detection_confidence: isConfident ? 'medium' : 'low'
       })
       .eq('id', id);
 
     res.status(200).json({ 
       messages: [{ 
         response: translatedText, 
-        original_language: validLang,
-        detection_confidence: validLang !== 'unknown' ? 'medium' : 'low'
+        original_language: finalLang,
+        detection_confidence: isConfident ? 'medium' : 'low'
       }]
     });
   } catch (err) {
     console.error('Translation error:', err);
-    // Fallback - store original message and unknown language
+    // Fallback - store original message
     await supabase
       .from('messages')
       .update({ 
