@@ -1,5 +1,20 @@
 import { supabase } from '../../lib/supabaseClient';
 
+// Language detection configuration (German removed from detection)
+const LANGUAGE_DETECTION = {
+  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'], // English
+  ar: ['ال', 'في', 'من', 'على', 'أن', 'هو', 'إلى', 'كان', 'هذا', 'مع'], // Arabic
+  pt: ['o', 'a', 'de', 'e', 'que', 'em', 'do', 'da', 'para', 'com'], // Portuguese
+  hi: ['और', 'से', 'है', 'की', 'में', 'हैं', 'को', 'पर', 'यह', 'था'], // Hindi
+  it: ['il', 'la', 'di', 'e', 'che', 'in', 'un', 'a', 'per', 'con'], // Italian
+  ko: ['이', '그', '에', '를', '의', '은', '는', '과', '와', '하다'], // Korean
+  tl: ['ang', 'ng', 'sa', 'na', 'ay', 'at', 'mga', 'si', 'ito', 'ni'], // Filipino (Tagalog)
+  zh: ['的', '一', '是', '在', '不', '了', '有', '和', '人', '这'], // Chinese
+  ja: ['の', 'に', 'は', 'を', 'た', 'が', 'で', 'し', 'て', 'ます'], // Japanese
+  ru: ['и', 'в', 'не', 'на', 'я', 'что', 'он', 'с', 'по', 'как'], // Russian
+  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se']  // Spanish
+};
+
 // Special characters for CJK and Arabic scripts
 const CJK_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/;
 const ARABIC_REGEX = /[\u0600-\u06FF]/;
@@ -30,13 +45,19 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Simple script-based language detection (no German specific logic)
-    function detectScript(text) {
+    function detectLanguage(text) {
       if (!text || typeof text !== 'string') return null;
       
+      // Check for Arabic script first
       if (ARABIC_REGEX.test(text)) return 'ar';
+      
+      // Check for Korean (Hangul)
       if (HANGUL_REGEX.test(text)) return 'ko';
+      
+      // Check for Hindi (Devanagari)
       if (DEVANAGARI_REGEX.test(text)) return 'hi';
+      
+      // Check for CJK characters (Chinese, Japanese)
       if (CJK_REGEX.test(text)) {
         const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
         const japaneseChars = (text.match(/[\u3040-\u309f\u30a0-\u30ff]/g) || []).length;
@@ -44,18 +65,91 @@ export default async function handler(req, res) {
         if (chineseChars > japaneseChars) return 'zh';
         if (japaneseChars > 0) return 'ja';
       }
+
+      // Check Cyrillic for Russian
       if (/[\u0400-\u04FF]/.test(text)) return 'ru';
+
+      const textLower = text.toLowerCase();
+      let bestMatch = { lang: null, score: 0 };
       
-      return null; // Let MyMemory handle other languages
+      for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
+        // Skip CJK languages already checked
+        if (['zh', 'ja', 'ko', 'hi', 'ar'].includes(lang)) continue;
+        
+        const score = words.filter(word => 
+          new RegExp(`\\b${word}\\b`).test(textLower)
+        ).length;
+        
+        if (score > bestMatch.score) {
+          bestMatch = { lang, score };
+        }
+      }
+      
+      // Only return if we have reasonable confidence (at least 3 matches)
+      return bestMatch.score >= 3 ? bestMatch.lang : null;
     }
 
-    const detectedScript = detectScript(originalMessage);
+    // Step 1: Detect language (won't detect German)
+    const detectedLang = detectLanguage(originalMessage);
     
-    // If message is in a script we can't auto-detect, let MyMemory handle it
-    const sourceLang = detectedScript || 'auto';
+    // Step 2: If message is English, return as-is
+    if (detectedLang === 'en') {
+      await supabase
+        .from('messages')
+        .update({ 
+          translated_message: originalMessage,
+          original_language: 'en'
+        })
+        .eq('id', id);
 
-    // Translate to English
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
+      return res.status(200).json({ 
+        messages: [{ 
+          response: originalMessage, 
+          original_language: 'en'
+        }]
+      });
+    }
+
+    // Step 3: For non-English messages (or undetected messages including German), translate to English
+    let sourceLang = detectedLang;
+    let translationNeeded = true;
+
+    // Additional English check if detection failed
+    if (!sourceLang) {
+      const englishWordCount = LANGUAGE_DETECTION.en.filter(word => 
+        new RegExp(`\\b${word}\\b`, 'i').test(originalMessage)
+      ).length;
+      const wordCount = originalMessage.split(/\s+/).length || 1;
+      
+      if ((englishWordCount / wordCount) > 0.3) {
+        sourceLang = 'en';
+        translationNeeded = false;
+      } else {
+        // If we can't detect, let the translation API auto-detect (including German)
+        sourceLang = 'auto';
+      }
+    }
+
+    // If no translation needed (it's English)
+    if (!translationNeeded) {
+      await supabase
+        .from('messages')
+        .update({ 
+          translated_message: originalMessage,
+          original_language: 'en'
+        })
+        .eq('id', id);
+
+      return res.status(200).json({ 
+        messages: [{ 
+          response: originalMessage, 
+          original_language: 'en'
+        }]
+      });
+    }
+
+    // Step 4: Translate to English (will handle German via auto-detection)
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang === 'auto' ? 'auto' : sourceLang}|en&key=${MYMEMORY_API_KEY}`;
     
     const translateResponse = await fetch(translateUrl);
     if (!translateResponse.ok) {
@@ -76,7 +170,7 @@ export default async function handler(req, res) {
       .eq('id', id);
 
     res.status(200).json({ 
-      messages: [{ 
+      messages:[{ 
         response: translatedText, 
         original_language: finalSourceLang
       }]
