@@ -88,7 +88,7 @@ export default async function handler(req, res) {
       }
       
       // Only return if we have reasonable confidence (at least 3 matches)
-      return bestMatch.score >= 3 ? bestMatch.lang : null;
+      return bestMatch.score >= 1 ? bestMatch.lang : null;
     }
 
     // Step 1: Detect language
