@@ -2,17 +2,18 @@ import { supabase } from '../../lib/supabaseClient';
 
 // Comprehensive language detection configuration
 const LANGUAGE_DETECTION = {
-  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'], // English
-  ar: ['ال', 'في', 'من', 'على', 'أن', 'هو', 'إلى', 'كان', 'هذا', 'مع'], // Arabic
-  pt: ['o', 'a', 'de', 'e', 'que', 'em', 'do', 'da', 'para', 'com'], // Portuguese
-  hi: ['और', 'से', 'है', 'की', 'में', 'हैं', 'को', 'पर', 'यह', 'था'], // Hindi
-  it: ['il', 'la', 'di', 'e', 'che', 'in', 'un', 'a', 'per', 'con'], // Italian
-  ko: ['이', '그', '에', '를', '의', '은', '는', '과', '와', '하다'], // Korean
-  tl: ['ang', 'ng', 'sa', 'na', 'ay', 'at', 'mga', 'si', 'ito', 'ni'], // Filipino (Tagalog)
-  zh: ['的', '一', '是', '在', '不', '了', '有', '和', '人', '这'], // Chinese
-  ja: ['の', 'に', 'は', 'を', 'た', 'が', 'で', 'し', 'て', 'ます'], // Japanese
-  ru: ['и', 'в', 'не', 'на', 'я', 'что', 'он', 'с', 'по', 'как'], // Russian
-  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se']  // Spanish
+  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'],
+  ar: ['ال', 'في', 'من', 'على', 'أن', 'هو', 'إلى', 'كان', 'هذا', 'مع'],
+  pt: ['o', 'a', 'de', 'e', 'que', 'em', 'do', 'da', 'para', 'com'],
+  hi: ['और', 'से', 'है', 'की', 'में', 'हैं', 'को', 'पर', 'यह', 'था'],
+  it: ['il', 'la', 'di', 'e', 'che', 'in', 'un', 'a', 'per', 'con'],
+  ko: ['이', '그', '에', '를', '의', '은', '는', '과', '와', '하다'],
+  tl: ['ang', 'ng', 'sa', 'na', 'ay', 'at', 'mga', 'si', 'ito', 'ni'],
+  zh: ['的', '一', '是', '在', '不', '了', '有', '和', '人', '这'],
+  ja: ['の', 'に', 'は', 'を', 'た', 'が', 'で', 'し', 'て', 'ます'],
+  ru: ['и', 'в', 'не', 'на', 'я', 'что', 'он', 'с', 'по', 'как'],
+  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'],
+  de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich']  // Added German
 };
 
 // Special characters for CJK and Arabic scripts
