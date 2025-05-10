@@ -1,13 +1,17 @@
 import { supabase } from '../../lib/supabaseClient';
 
-// Language detection configuration
+// Enhanced language detection configuration
+const ENGLISH_WORDS = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'];
+const GERMAN_WORDS = ['der', 'die', 'das', 'und', 'in', 'den', 'von', 'zu', 'mit', 'sich'];
+const SPANISH_WORDS = ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'];
+const FRENCH_WORDS = ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'];
+
 const LANGUAGE_DETECTION = {
-  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'],
-  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'],
-  fr: ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'],
-  de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich']
+  en: ENGLISH_WORDS,
+  de: GERMAN_WORDS,
+  es: SPANISH_WORDS,
+  fr: FRENCH_WORDS
 };
-const DEFAULT_SOURCE_LANG = 'es'; // Fallback language
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -33,7 +37,7 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Local language detection function
+    // Improved language detection function
     function detectLanguage(text) {
       if (!text || typeof text !== 'string') return null;
       
@@ -54,11 +58,10 @@ export default async function handler(req, res) {
       return bestMatch.score >= 3 ? bestMatch.lang : null;
     }
 
-    // Step 1: Detect language locally
+    // Step 1: Detect language
     const detectedLang = detectLanguage(originalMessage);
-    const sourceLang = detectedLang || DEFAULT_SOURCE_LANG;
-
-    // Step 2: If detected as English, return original
+    
+    // Step 2: If message is English, return as-is
     if (detectedLang === 'en') {
       await supabase
         .from('messages')
@@ -76,7 +79,45 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 3: Translate using detected or default language
+    // Step 3: For non-English messages (German, Spanish, French), translate to English
+    let sourceLang = detectedLang;
+    let translationNeeded = true;
+
+    // If we couldn't detect the language, try to determine if it's English
+    if (!sourceLang) {
+      const englishWordCount = ENGLISH_WORDS.filter(word => 
+        new RegExp(`\\b${word}\\b`, 'i').test(originalMessage)
+      ).length;
+      const wordCount = originalMessage.split(/\s+/).length || 1;
+      
+      if ((englishWordCount / wordCount) > 0.3) {
+        sourceLang = 'en';
+        translationNeeded = false;
+      } else {
+        // Fallback to most common languages we want to translate
+        sourceLang = 'de'; // Default to German if uncertain
+      }
+    }
+
+    // If no translation needed (it's English)
+    if (!translationNeeded) {
+      await supabase
+        .from('messages')
+        .update({ 
+          translated_message: originalMessage,
+          original_language: 'en'
+        })
+        .eq('id', id);
+
+      return res.status(200).json({ 
+        messages: [{ 
+          response: originalMessage, 
+          original_language: 'en'
+        }]
+      });
+    }
+
+    // Step 4: Translate to English
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
     
     const translateResponse = await fetch(translateUrl);
@@ -86,20 +127,21 @@ export default async function handler(req, res) {
 
     const translateResult = await translateResponse.json();
     const translatedText = translateResult.responseData?.translatedText || originalMessage;
+    const finalSourceLang = translateResult.responseData?.detectedSourceLanguage || sourceLang;
 
     // Store results
     await supabase
       .from('messages')
       .update({ 
         translated_message: translatedText,
-        original_language: sourceLang
+        original_language: finalSourceLang
       })
       .eq('id', id);
 
     res.status(200).json({ 
       messages: [{ 
         response: translatedText, 
-        original_language: sourceLang
+        original_language: finalSourceLang
       }]
     });
   } catch (err) {
