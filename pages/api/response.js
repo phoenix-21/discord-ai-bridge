@@ -1,5 +1,5 @@
 import { supabase } from '../../lib/supabaseClient';
-import fetch from 'node-fetch';
+import fetch from 'node-fetch'; // Make sure this is installed in your project
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -14,7 +14,10 @@ export default async function handler(req, res) {
   const { id, message: originalMessage, translated_message } = data[0];
   if (translated_message) {
     return res.status(200).json({
-      messages: [{ response: translated_message, original_language: 'unknown' }]
+      messages: [{
+        response: translated_message,
+        original_language: 'unknown'
+      }]
     });
   }
 
@@ -22,26 +25,21 @@ export default async function handler(req, res) {
   let detectedLang = 'unknown';
 
   try {
-    // Try LibreTranslate first
+    // Detect language using languagedetectapi.com
     try {
-      const detectResponse = await fetch("https://translate.argosopentech.com/detect", {
+      const detectResponse = await fetch("https://languagedetectapi.com/api/detect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ q: originalMessage })
+        body: JSON.stringify({ text: originalMessage })
       });
-      const detectResult = await detectResponse.json();
-      detectedLang = detectResult[0]?.language || 'unknown';
-    } catch (libreErr) {
-      console.warn("LibreTranslate failed, falling back to MyMemory");
 
-      // Fallback: Try MyMemory
-      const detectUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
-      const detectResponse = await fetch(detectUrl);
       const detectResult = await detectResponse.json();
-      detectedLang = detectResult.responseData?.match?.lang || 'unknown';
+      detectedLang = detectResult.language || 'unknown';
+    } catch (detectErr) {
+      console.warn("Language detection failed:", detectErr.message);
     }
 
-    // If detection failed or it's English, skip translation
+    // Skip translation if detection failed or message is already in English
     if (detectedLang === 'unknown' || detectedLang === 'en') {
       return res.status(200).json({
         messages: [{
@@ -51,14 +49,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // Translate only if valid language code detected
+    // Translate message from detectedLang to English
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${detectedLang}|en&key=${MYMEMORY_API_KEY}`;
     const translateResponse = await fetch(translateUrl);
     const translateResult = await translateResponse.json();
 
     const translatedMessage = translateResult.responseData?.translatedText || originalMessage;
 
-    await supabase.from('messages').update({ translated_message: translatedMessage }).eq('id', id);
+    // Save translated message to Supabase
+    await supabase
+      .from('messages')
+      .update({ translated_message: translatedMessage })
+      .eq('id', id);
 
     res.status(200).json({
       messages: [{
