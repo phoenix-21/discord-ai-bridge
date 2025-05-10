@@ -23,19 +23,45 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Detect the language
-    const detectUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
-    const detectResponse = await fetch(detectUrl);
-    const detectResult = await detectResponse.json();
-    let detectedLang = detectResult.responseData?.match?.lang || detectResult.responseData?.detectedSourceLanguage || null;
+    // Improved language detection
+    async function detectLanguage(text) {
+      try {
+        // First try MyMemory's detection
+        const detectUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
+        const detectResponse = await fetch(detectUrl);
+        const detectResult = await detectResponse.json();
+        
+        // Check multiple possible response formats
+        const detectedLang = detectResult.responseData?.detectedLanguage?.language || 
+                           detectResult.responseData?.match?.sourceLanguage ||
+                           detectResult.responseData?.detectedSourceLanguage;
+        
+        // Validate it's a 2-letter code
+        if (detectedLang && /^[a-z]{2}$/i.test(detectedLang)) {
+          return detectedLang.toLowerCase();
+        }
 
-    // Validate the detected language (must be 2-letter ISO code)
-    const validLangCodes = ['es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko', 'ar']; // Add more as needed
-    if (!detectedLang || !validLangCodes.includes(detectedLang)) {
-      detectedLang = 'auto'; // Let MyMemory handle auto-detection during translation
+        // Fallback to simple English detection
+        const englishWords = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'];
+        const isLikelyEnglish = englishWords.some(word => 
+          new RegExp(`\\b${word}\\b`, 'i').test(text)
+        );
+        if (isLikelyEnglish) return 'en';
+
+        return null;
+      } catch (e) {
+        console.error('Detection failed:', e);
+        return null;
+      }
     }
 
-    // If the message is already in English, no translation needed
+    // Detect language with improved function
+    let detectedLang = await detectLanguage(originalMessage);
+
+    // If we still can't detect, use 'auto' as fallback
+    const sourceLang = detectedLang || 'auto';
+
+    // If detected as English, return original
     if (detectedLang === 'en') {
       return res.status(200).json({ 
         messages: [{ 
@@ -46,14 +72,15 @@ export default async function handler(req, res) {
     }
 
     // Translate using detected language or auto-detection
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${detectedLang}|en&key=${MYMEMORY_API_KEY}`;
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
     const translateResponse = await fetch(translateUrl);
     const translateResult = await translateResponse.json();
 
+    // Get final translation and detected language
     const translatedMessage = translateResult.responseData?.translatedText || originalMessage;
     const finalDetectedLang = translateResult.responseData?.detectedSourceLanguage || detectedLang || 'unknown';
 
-    // Store both the translation and detected language
+    // Store results
     await supabase
       .from('messages')
       .update({ 
