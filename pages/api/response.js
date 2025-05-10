@@ -20,30 +20,21 @@ export default async function handler(req, res) {
   const { id, message: originalMessage, translated_message } = data[0];
 
   if (translated_message) {
-    // Already translated, return cached version
     return res.status(200).json({
       messages: [{ response: translated_message }]
     });
   }
 
   try {
-    const response = await fetch("https://libretranslate.com/translate", {
-      method: "POST",
-      body: JSON.stringify({
-        q: originalMessage,
-        source: "auto",
-        target: "en",
-        format: "text",
-        alternatives: 3,
-        api_key: ""
-      }),
-      headers: { "Content-Type": "application/json" }
-    });
-
+    // MyMemory API call without a key
+    const apiUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=auto|en`;
+    const response = await fetch(apiUrl);
     const result = await response.json();
-    const translatedMessage = result.translatedText || originalMessage;
 
-    // Save translated message in DB
+    // Extract translation or fallback to original
+    const translatedMessage = result.responseData?.translatedText || originalMessage;
+
+    // Save to DB
     await supabase
       .from('messages')
       .update({ translated_message: translatedMessage })
@@ -53,6 +44,10 @@ export default async function handler(req, res) {
       messages: [{ response: translatedMessage }]
     });
   } catch (err) {
-    res.status(500).json({ error: 'Translation failed', detail: err.message });
+    res.status(500).json({ 
+      error: 'Translation failed', 
+      detail: err.message,
+      fallback: originalMessage // Always return the original text if translation fails
+    });
   }
 }
