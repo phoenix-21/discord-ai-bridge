@@ -11,30 +11,49 @@ export default async function handler(req, res) {
   if (!data?.length) return res.status(200).json({ messages: [{ response: 'No messages.' }] });
 
   const { id, message: originalMessage, translated_message } = data[0];
-  if (translated_message) return res.status(200).json({ messages: [{ response: translated_message }] });
+  if (translated_message) {
+    return res.status(200).json({ 
+      messages: [{ 
+        response: translated_message, 
+        original_language: 'unknown' // fallback in case it's already stored
+      }]
+    });
+  }
 
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
-    
-    // Use MyMemory's language detection
+
+    // Detect the language
     const detectUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
     const detectResponse = await fetch(detectUrl);
     const detectResult = await detectResponse.json();
-    const detectedLang = detectResult.responseData?.match?.lang || detectResult.responseData?.detectedSourceLanguage;
+    const detectedLang = detectResult.responseData?.match?.lang || detectResult.responseData?.detectedSourceLanguage || 'unknown';
 
-    // Skip translation if it's already in English
+    // If the message is already in English, no translation
     if (detectedLang === 'en') {
-      return res.status(200).json({ messages: [{ response: originalMessage }] });
+      return res.status(200).json({ 
+        messages: [{ 
+          response: originalMessage, 
+          original_language: detectedLang 
+        }]
+      });
     }
 
+    // Translate only if not English
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=es|en&key=${MYMEMORY_API_KEY}`;
     const translateResponse = await fetch(translateUrl);
     const translateResult = await translateResponse.json();
 
     const translatedMessage = translateResult.responseData?.translatedText || originalMessage;
+
     await supabase.from('messages').update({ translated_message: translatedMessage }).eq('id', id);
 
-    res.status(200).json({ messages: [{ response: translatedMessage }] });
+    res.status(200).json({ 
+      messages: [{ 
+        response: translatedMessage, 
+        original_language: detectedLang 
+      }]
+    });
   } catch (err) {
     res.status(500).json({ 
       error: 'Translation failed', 
