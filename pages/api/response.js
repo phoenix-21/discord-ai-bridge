@@ -13,7 +13,7 @@ const LANGUAGE_DETECTION = {
   ja: ['の', 'に', 'は', 'を', 'た', 'が', 'で', 'し', 'て', 'ます'],
   ru: ['и', 'в', 'не', 'на', 'я', 'что', 'он', 'с', 'по', 'как'],
   es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'],
-  de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich', 'wir', 'haben', 'eine', 'nicht', 'ist', 'auch', 'man', 'was', 'wie', 'gibt', 'mehr', 'ich', 'du', 'es', 'sein', 'große', 'gestern', 'gegessen']
+  de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich', 'wir', 'haben', 'eine', 'nicht', 'ist', 'auch', 'man', 'was', 'wie', 'gibt', 'mehr', 'ich', 'du', 'es', 'sein', 'große', 'gestern', 'gegessen', 'morgen', 'fahren', 'zug', 'münchen']
 };
 
 // Special characters for CJK and Arabic scripts
