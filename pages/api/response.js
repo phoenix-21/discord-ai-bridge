@@ -1,5 +1,4 @@
 import { supabase } from '../../lib/supabaseClient';
-import fetch from 'node-fetch'; // Make sure this is installed
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -8,92 +7,56 @@ export default async function handler(req, res) {
     .order('id', { ascending: false })
     .limit(1);
 
-  if (error) {
-    console.error("Supabase fetch error:", error.message);
-    return res.status(500).json({ error: error.message });
-  }
-
-  if (!data?.length) {
-    return res.status(200).json({
-      messages: [{ response: 'No messages.', original_language: 'unknown' }]
-    });
-  }
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data?.length) return res.status(200).json({ messages: [{ response: 'No messages.' }] });
 
   const { id, message: originalMessage, translated_message } = data[0];
-  console.log("Original message:", originalMessage);
-
   if (translated_message) {
-    return res.status(200).json({
-      messages: [{ response: translated_message, original_language: 'unknown' }]
+    return res.status(200).json({ 
+      messages: [{ 
+        response: translated_message, 
+        original_language: 'unknown' // fallback in case it's already stored
+      }]
     });
   }
 
-  const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
-  let detectedLang = 'unknown';
-
   try {
-    // Language detection
-    try {
-      const detectRes = await fetch("https://languagedetectapi.com/api/detect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: originalMessage })
-      });
+    const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-      const detectJson = await detectRes.json();
-      detectedLang = detectJson.language || 'unknown';
-      console.log("Detected language:", detectedLang);
-    } catch (detectErr) {
-      console.warn("Language detection failed:", detectErr.message);
-    }
+    // Detect the language
+    const detectUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
+    const detectResponse = await fetch(detectUrl);
+    const detectResult = await detectResponse.json();
+    const detectedLang = detectResult.responseData?.match?.lang || detectResult.responseData?.detectedSourceLanguage || 'unknown';
 
-    // Skip translation if English or unknown
-    if (detectedLang === 'unknown' || detectedLang === 'en') {
-      const { error: updateError } = await supabase
-        .from('messages')
-        .update({ original_language: detectedLang })
-        .eq('id', id);
-
-      if (updateError) {
-        console.error("Supabase update error (no translation):", updateError.message);
-      }
-
-      return res.status(200).json({
-        messages: [{ response: originalMessage, original_language: detectedLang }]
+    // If the message is already in English, no translation
+    if (detectedLang === 'en') {
+      return res.status(200).json({ 
+        messages: [{ 
+          response: originalMessage, 
+          original_language: detectedLang 
+        }]
       });
     }
 
-    // Translate using MyMemory
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${detectedLang}|en&key=${MYMEMORY_API_KEY}`;
-    console.log("Translation API URL:", translateUrl);
+    // Translate only if not English
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=es|en&key=${MYMEMORY_API_KEY}`;
+    const translateResponse = await fetch(translateUrl);
+    const translateResult = await translateResponse.json();
 
-    const translateRes = await fetch(translateUrl);
-    const translateJson = await translateRes.json();
-    console.log("Translation API raw response:", translateJson);
+    const translatedMessage = translateResult.responseData?.translatedText || originalMessage;
 
-    const translatedMessage = translateJson.responseData?.translatedText || originalMessage;
-    console.log("Final translated message:", translatedMessage);
+    await supabase.from('messages').update({ translated_message: translatedMessage }).eq('id', id);
 
-    const { error: updateError } = await supabase
-      .from('messages')
-      .update({
-        translated_message: translatedMessage,
-        original_language: detectedLang
-      })
-      .eq('id', id);
-
-    if (updateError) {
-      console.error("Supabase update error:", updateError.message);
-    }
-
-    return res.status(200).json({
-      messages: [{ response: translatedMessage, original_language: detectedLang }]
+    res.status(200).json({ 
+      messages: [{ 
+        response: translatedMessage, 
+        original_language: detectedLang 
+      }]
     });
-
   } catch (err) {
-    console.error("Translation error:", err.message);
-    return res.status(500).json({
-      error: 'Translation failed',
+    res.status(500).json({ 
+      error: 'Translation failed', 
       detail: err.message,
       fallback: originalMessage
     });
