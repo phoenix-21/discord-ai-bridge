@@ -15,6 +15,13 @@ const LANGUAGE_CLUES = {
   es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se']  // Spanish
 };
 
+// Special patterns for Tagalog detection
+const TAGALOG_PATTERNS = [
+  /\b(ka|ko|mo|n[gay]|sa)\b/i, // Common particles and pronouns
+  /\b(mga|si|sina)\b/i,        // Plural markers and proper noun markers
+  /\b(ito|iyan|iyon)\b/i       // Demonstratives
+];
+
 export default async function handler(req, res) {
   const { data, error } = await supabase
     .from('messages')
@@ -39,24 +46,38 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Simple language detector
+    // Enhanced language detector with special Tagalog handling
     function detectLanguage(text) {
       if (!text) return 'en';
       
       const textLower = text.toLowerCase();
+      
+      // First check for Tagalog specifically
+      const tagalogScore = TAGALOG_PATTERNS.reduce((score, pattern) => 
+        score + (textLower.match(pattern)?.length || 0), 0);
+      
+      if (tagalogScore >= 2) { // If we find multiple Tagalog markers
+        return 'tl';
+      }
+      
+      // Then check other languages
       let bestMatch = { lang: 'en', score: 0 };
       
       for (const [lang, words] of Object.entries(LANGUAGE_CLUES)) {
-        const score = words.filter(word => textLower.includes(word)).length;
+        const score = words.filter(word => 
+          new RegExp(`\\b${word}\\b`).test(textLower) // Whole word matching
+        ).length;
+        
         if (score > bestMatch.score) {
           bestMatch = { lang, score };
         }
       }
+      
       return bestMatch.lang;
     }
 
-    // Split into sentences
-    const sentences = originalMessage.split(/(?<=[.!?])\s+/);
+    // Improved sentence splitting that handles multilingual content better
+    const sentences = originalMessage.split(/(?<=[.!?\n])\s+/);
     const processedSentences = [];
 
     for (const sentence of sentences) {
@@ -67,15 +88,33 @@ export default async function handler(req, res) {
         continue;
       }
 
-      // Translate non-English sentences
-      const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(sentence)}&langpair=${lang}|en&key=${MYMEMORY_API_KEY}`;
-      const response = await fetch(translateUrl);
-      const result = await response.json();
-      
-      processedSentences.push(result.responseData?.translatedText || sentence);
+      // Translate non-English sentences with error handling
+      try {
+        const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(sentence)}&langpair=${lang}|en&key=${MYMEMORY_API_KEY}`;
+        const response = await fetch(translateUrl);
+        
+        if (!response.ok) throw new Error('API request failed');
+        
+        const result = await response.json();
+        const translated = result.responseData?.translatedText || sentence;
+        
+        // Special handling for Tagalog to ensure proper translation
+        if (lang === 'tl' && translated === sentence) {
+          // If first attempt failed, try with different parameters
+          const retryUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(sentence)}&langpair=tl|en&de=user1@example.com&key=${MYMEMORY_API_KEY}`;
+          const retryResponse = await fetch(retryUrl);
+          const retryResult = await retryResponse.json();
+          processedSentences.push(retryResult.responseData?.translatedText || sentence);
+        } else {
+          processedSentences.push(translated);
+        }
+      } catch (err) {
+        console.error(`Translation failed for ${lang}:`, err);
+        processedSentences.push(sentence); // Fallback to original
+      }
     }
 
-    const translatedText = processedSentences.join(' ');
+    const translatedText = processedSentences.join(' ').replace(/\s+/g, ' ').trim();
 
     await supabase
       .from('messages')
