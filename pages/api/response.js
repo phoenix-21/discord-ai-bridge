@@ -1,5 +1,5 @@
 import { supabase } from '../../lib/supabaseClient';
-import fetch from 'node-fetch'; // npm install node-fetch
+import fetch from 'node-fetch'; // Make sure this is installed
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -9,6 +9,7 @@ export default async function handler(req, res) {
     .limit(1);
 
   if (error) {
+    console.error("Supabase fetch error:", error.message);
     return res.status(500).json({ error: error.message });
   }
 
@@ -19,6 +20,7 @@ export default async function handler(req, res) {
   }
 
   const { id, message: originalMessage, translated_message } = data[0];
+  console.log("Original message:", originalMessage);
 
   if (translated_message) {
     return res.status(200).json({
@@ -30,45 +32,49 @@ export default async function handler(req, res) {
   let detectedLang = 'unknown';
 
   try {
-    // Detect language using languagedetectapi.com
+    // Language detection
     try {
-      const detectResponse = await fetch("https://languagedetectapi.com/api/detect", {
+      const detectRes = await fetch("https://languagedetectapi.com/api/detect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: originalMessage })
       });
 
-      const detectResult = await detectResponse.json();
-      detectedLang = detectResult.language || 'unknown';
+      const detectJson = await detectRes.json();
+      detectedLang = detectJson.language || 'unknown';
+      console.log("Detected language:", detectedLang);
     } catch (detectErr) {
       console.warn("Language detection failed:", detectErr.message);
     }
 
-    // If detection failed or message is already in English
+    // Skip translation if English or unknown
     if (detectedLang === 'unknown' || detectedLang === 'en') {
-      // Save original_language to Supabase even if no translation
-      await supabase
+      const { error: updateError } = await supabase
         .from('messages')
         .update({ original_language: detectedLang })
         .eq('id', id);
 
+      if (updateError) {
+        console.error("Supabase update error (no translation):", updateError.message);
+      }
+
       return res.status(200).json({
-        messages: [{
-          response: originalMessage,
-          original_language: detectedLang
-        }]
+        messages: [{ response: originalMessage, original_language: detectedLang }]
       });
     }
 
-    // Translate from detectedLang to English using MyMemory
+    // Translate using MyMemory
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${detectedLang}|en&key=${MYMEMORY_API_KEY}`;
-    const translateResponse = await fetch(translateUrl);
-    const translateResult = await translateResponse.json();
+    console.log("Translation API URL:", translateUrl);
 
-    const translatedMessage = translateResult.responseData?.translatedText || originalMessage;
+    const translateRes = await fetch(translateUrl);
+    const translateJson = await translateRes.json();
+    console.log("Translation API raw response:", translateJson);
 
-    // Save both translation and original language
-    await supabase
+    const translatedMessage = translateJson.responseData?.translatedText || originalMessage;
+    console.log("Final translated message:", translatedMessage);
+
+    const { error: updateError } = await supabase
       .from('messages')
       .update({
         translated_message: translatedMessage,
@@ -76,13 +82,16 @@ export default async function handler(req, res) {
       })
       .eq('id', id);
 
+    if (updateError) {
+      console.error("Supabase update error:", updateError.message);
+    }
+
     return res.status(200).json({
-      messages: [{
-        response: translatedMessage,
-        original_language: detectedLang
-      }]
+      messages: [{ response: translatedMessage, original_language: detectedLang }]
     });
+
   } catch (err) {
+    console.error("Translation error:", err.message);
     return res.status(500).json({
       error: 'Translation failed',
       detail: err.message,
