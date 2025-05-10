@@ -12,7 +12,6 @@ export default async function handler(req, res) {
 
   const { id, message: originalMessage, translated_message } = data[0];
   
-  // If we already have a translation in the database, return it
   if (translated_message) {
     return res.status(200).json({ 
       messages: [{ 
@@ -25,23 +24,33 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // First check if existing translations are already in English
+    // First check for existing translations
     const checkUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
     const checkResponse = await fetch(checkUrl);
     const checkResult = await checkResponse.json();
 
-    // Check if any existing translations target English
-    const hasEnglishTranslation = checkResult.matches?.some(match => 
-      match.target && (match.target.startsWith('en-US') || match.target.startsWith('en-GB'))
-    );
+    // Safely check for English translations
+    let hasEnglishTranslation = false;
+    let bestMatch = null;
 
-    // If English translation exists, use the best match
-    if (hasEnglishTranslation) {
-      const bestMatch = checkResult.matches.reduce((best, current) => 
-        (current.match > (best?.match || 0)) ? current : best, null);
-      
-      const translatedText = bestMatch?.translation || originalMessage;
-      const sourceLang = bestMatch?.source?.split('-')[0] || 'unknown';
+    if (checkResult.matches && Array.isArray(checkResult.matches)) {
+      hasEnglishTranslation = checkResult.matches.some(match => 
+        match && match.target && (match.target.startsWith('en-US') || match.target.startsWith('en-GB'))
+      );
+
+      // Find best quality match if available
+      if (hasEnglishTranslation) {
+        bestMatch = checkResult.matches.reduce((best, current) => {
+          if (!current || !current.match) return best;
+          return (current.match > (best?.match || 0)) ? current : best;
+        }, null);
+      }
+    }
+
+    // If English translation exists, use it
+    if (hasEnglishTranslation && bestMatch) {
+      const translatedText = bestMatch.translation || originalMessage;
+      const sourceLang = bestMatch.source ? bestMatch.source.split('-')[0] : 'unknown';
 
       await supabase
         .from('messages')
@@ -59,7 +68,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // If no English translation exists, perform translation
+    // If no English translation exists, perform new translation
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=auto|en&key=${MYMEMORY_API_KEY}`;
     const translateResponse = await fetch(translateUrl);
     const translateResult = await translateResponse.json();
@@ -67,7 +76,6 @@ export default async function handler(req, res) {
     const translatedText = translateResult.responseData?.translatedText || originalMessage;
     const sourceLang = translateResult.responseData?.detectedSourceLanguage || 'unknown';
 
-    // Store the new translation
     await supabase
       .from('messages')
       .update({ 
