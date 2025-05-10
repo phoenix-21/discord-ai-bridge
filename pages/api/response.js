@@ -1,5 +1,14 @@
 import { supabase } from '../../lib/supabaseClient';
 
+// Language detection configuration
+const LANGUAGE_DETECTION = {
+  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'],
+  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'],
+  fr: ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'],
+  de: ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich']
+};
+const DEFAULT_SOURCE_LANG = 'es'; // Fallback language
+
 export default async function handler(req, res) {
   const { data, error } = await supabase
     .from('messages')
@@ -24,58 +33,61 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // First check for existing translations
-    const checkUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
-    const checkResponse = await fetch(checkUrl);
-    const checkResult = await checkResponse.json();
-
-    // Safely check for English translations
-    let hasEnglishTranslation = false;
-    let bestMatch = null;
-
-    if (checkResult.matches && Array.isArray(checkResult.matches)) {
-      hasEnglishTranslation = checkResult.matches.some(match => 
-        match && match.target && (match.target.startsWith('en-US') || match.target.startsWith('en-GB'))
-      );
-
-      // Find best quality match if available
-      if (hasEnglishTranslation) {
-        bestMatch = checkResult.matches.reduce((best, current) => {
-          if (!current || !current.match) return best;
-          return (current.match > (best?.match || 0)) ? current : best;
-        }, null);
+    // Local language detection function
+    function detectLanguage(text) {
+      if (!text || typeof text !== 'string') return null;
+      
+      const textLower = text.toLowerCase();
+      let bestMatch = { lang: null, score: 0 };
+      
+      for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
+        const score = words.filter(word => 
+          new RegExp(`\\b${word}\\b`).test(textLower)
+        ).length;
+        
+        if (score > bestMatch.score) {
+          bestMatch = { lang, score };
+        }
       }
+      
+      // Only return if we have reasonable confidence (at least 3 matches)
+      return bestMatch.score >= 3 ? bestMatch.lang : null;
     }
 
-    // If English translation exists, use it
-    if (hasEnglishTranslation && bestMatch) {
-      const translatedText = bestMatch.translation || originalMessage;
-      const sourceLang = bestMatch.source ? bestMatch.source.split('-')[0] : 'unknown';
+    // Step 1: Detect language locally
+    const detectedLang = detectLanguage(originalMessage);
+    const sourceLang = detectedLang || DEFAULT_SOURCE_LANG;
 
+    // Step 2: If detected as English, return original
+    if (detectedLang === 'en') {
       await supabase
         .from('messages')
         .update({ 
-          translated_message: translatedText,
-          original_language: sourceLang
+          translated_message: originalMessage,
+          original_language: 'en'
         })
         .eq('id', id);
 
       return res.status(200).json({ 
         messages: [{ 
-          response: translatedText, 
-          original_language: sourceLang
+          response: originalMessage, 
+          original_language: 'en'
         }]
       });
     }
 
-    // If no English translation exists, perform new translation
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=auto|en&key=${MYMEMORY_API_KEY}`;
+    // Step 3: Translate using detected or default language
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
+    
     const translateResponse = await fetch(translateUrl);
+    if (!translateResponse.ok) {
+      throw new Error(`API request failed with status ${translateResponse.status}`);
+    }
+
     const translateResult = await translateResponse.json();
-
     const translatedText = translateResult.responseData?.translatedText || originalMessage;
-    const sourceLang = translateResult.responseData?.detectedSourceLanguage || 'unknown';
 
+    // Store results
     await supabase
       .from('messages')
       .update({ 
