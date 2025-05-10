@@ -1,11 +1,8 @@
-it doesn't translate german:
-
 import { supabase } from '../../lib/supabaseClient';
 
 // Comprehensive language detection configuration
 const LANGUAGE_DETECTION = {
   en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'], // English
-  de: ['der', 'die', 'das', 'und', 'in', 'den', 'von', 'zu', 'mit', 'sich'], // German
   ar: ['ال', 'في', 'من', 'على', 'أن', 'هو', 'إلى', 'كان', 'هذا', 'مع'], // Arabic
   pt: ['o', 'a', 'de', 'e', 'que', 'em', 'do', 'da', 'para', 'com'], // Portuguese
   hi: ['और', 'से', 'है', 'की', 'में', 'हैं', 'को', 'पर', 'यह', 'था'], // Hindi
