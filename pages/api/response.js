@@ -1,17 +1,18 @@
 import { supabase } from '../../lib/supabaseClient';
 
 // Enhanced language detection configuration
-const ENGLISH_WORDS = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'];
-const GERMAN_WORDS = ['der', 'die', 'das', 'und', 'in', 'den', 'von', 'zu', 'mit', 'sich'];
-const SPANISH_WORDS = ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se'];
-const FRENCH_WORDS = ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'];
-
 const LANGUAGE_DETECTION = {
-  en: ENGLISH_WORDS,
-  de: GERMAN_WORDS,
-  es: SPANISH_WORDS,
-  fr: FRENCH_WORDS
+  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'], // English
+  de: ['der', 'die', 'das', 'und', 'in', 'den', 'von', 'zu', 'mit', 'sich'], // German
+  fr: ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'], // French
+  zh: ['的', '一', '是', '在', '不', '了', '有', '和', '人', '这'], // Chinese
+  ja: ['の', 'に', 'は', 'を', 'た', 'が', 'で', 'し', 'て', 'ます'], // Japanese
+  ru: ['и', 'в', 'не', 'на', 'я', 'что', 'он', 'с', 'по', 'как'], // Russian
+  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se']  // Spanish
 };
+
+// Special characters for CJK languages
+const CJK_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/;
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -37,10 +38,23 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Improved language detection function
+    // Enhanced language detection function
     function detectLanguage(text) {
       if (!text || typeof text !== 'string') return null;
       
+      // First check for CJK characters (Chinese, Japanese, Korean)
+      if (CJK_REGEX.test(text)) {
+        // Count Chinese vs Japanese characters for more precise detection
+        const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+        const japaneseChars = (text.match(/[\u3040-\u309f\u30a0-\u30ff]/g) || []).length;
+        
+        if (chineseChars > japaneseChars) return 'zh';
+        if (japaneseChars > 0) return 'ja';
+      }
+
+      // Check Cyrillic for Russian
+      if (/[\u0400-\u04FF]/.test(text)) return 'ru';
+
       const textLower = text.toLowerCase();
       let bestMatch = { lang: null, score: 0 };
       
@@ -79,13 +93,13 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 3: For non-English messages (German, Spanish, French), translate to English
+    // Step 3: For non-English messages, translate to English
     let sourceLang = detectedLang;
     let translationNeeded = true;
 
-    // If we couldn't detect the language, try to determine if it's English
+    // Additional English check if detection failed
     if (!sourceLang) {
-      const englishWordCount = ENGLISH_WORDS.filter(word => 
+      const englishWordCount = LANGUAGE_DETECTION.en.filter(word => 
         new RegExp(`\\b${word}\\b`, 'i').test(originalMessage)
       ).length;
       const wordCount = originalMessage.split(/\s+/).length || 1;
@@ -94,8 +108,8 @@ export default async function handler(req, res) {
         sourceLang = 'en';
         translationNeeded = false;
       } else {
-        // Fallback to most common languages we want to translate
-        sourceLang = 'de'; // Default to German if uncertain
+        // If we can't detect, use the most common non-English languages
+        sourceLang = 'es'; // Default to Spanish if uncertain
       }
     }
 
