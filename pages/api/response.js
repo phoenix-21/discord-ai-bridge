@@ -39,14 +39,21 @@ export default async function handler(req, res) {
       });
     }
 
-    // Translate only if not English
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=es|en&key=${MYMEMORY_API_KEY}`;
+    // Translate only if not English, using detected language
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${detectedLang}|en&key=${MYMEMORY_API_KEY}`;
     const translateResponse = await fetch(translateUrl);
     const translateResult = await translateResponse.json();
 
     const translatedMessage = translateResult.responseData?.translatedText || originalMessage;
 
-    await supabase.from('messages').update({ translated_message: translatedMessage }).eq('id', id);
+    // Store both the translation and detected language
+    await supabase
+      .from('messages')
+      .update({ 
+        translated_message: translatedMessage,
+        original_language: detectedLang 
+      })
+      .eq('id', id);
 
     res.status(200).json({ 
       messages: [{ 
