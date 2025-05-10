@@ -1,6 +1,6 @@
 import { supabase } from '../../lib/supabaseClient';
 
-// Comprehensive language detection configuration
+// Enhanced language detection configuration
 const LANGUAGE_DETECTION = {
   en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'], // English
   de: ['der', 'die', 'das', 'und', 'in', 'den', 'von', 'zu', 'mit', 'sich'], // German
@@ -16,11 +16,14 @@ const LANGUAGE_DETECTION = {
   es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se']  // Spanish
 };
 
-// Special characters for CJK and Arabic scripts
-const CJK_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/;
-const ARABIC_REGEX = /[\u0600-\u06FF]/;
-const HANGUL_REGEX = /[\uac00-\ud7af]/;
-const DEVANAGARI_REGEX = /[\u0900-\u097F]/;
+// Special characters for different scripts
+const SCRIPT_REGEX = {
+  cjk: /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/,
+  arabic: /[\u0600-\u06FF]/,
+  hangul: /[\uac00-\ud7af]/,
+  devanagari: /[\u0900-\u097F]/,
+  cyrillic: /[\u0400-\u04FF]/
+};
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -46,135 +49,116 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Comprehensive language detection function
-    function detectLanguage(text) {
-      if (!text || typeof text !== 'string') return null;
+    // Enhanced language detection for mixed content
+    function detectLanguageSegments(text) {
+      if (!text) return [];
       
-      // Check for Arabic script first
-      if (ARABIC_REGEX.test(text)) return 'ar';
+      // Split by language boundaries (punctuation, line breaks, etc.)
+      const segments = text.split(/([.!?]\s+|[\n\r]+)/)
+        .filter(segment => segment.trim().length > 0);
       
-      // Check for Korean (Hangul)
-      if (HANGUL_REGEX.test(text)) return 'ko';
-      
-      // Check for Hindi (Devanagari)
-      if (DEVANAGARI_REGEX.test(text)) return 'hi';
-      
-      // Check for CJK characters (Chinese, Japanese)
-      if (CJK_REGEX.test(text)) {
-        const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-        const japaneseChars = (text.match(/[\u3040-\u309f\u30a0-\u30ff]/g) || []).length;
-        
-        if (chineseChars > japaneseChars) return 'zh';
-        if (japaneseChars > 0) return 'ja';
-      }
-
-      // Check Cyrillic for Russian
-      if (/[\u0400-\u04FF]/.test(text)) return 'ru';
-
-      const textLower = text.toLowerCase();
-      let bestMatch = { lang: null, score: 0 };
-      
-      for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
-        // Skip CJK languages already checked
-        if (['zh', 'ja', 'ko', 'hi', 'ar'].includes(lang)) continue;
-        
-        const score = words.filter(word => 
-          new RegExp(`\\b${word}\\b`).test(textLower)
-        ).length;
-        
-        if (score > bestMatch.score) {
-          bestMatch = { lang, score };
+      return segments.map(segment => {
+        // Check for script-based languages first
+        for (const [script, lang] of [
+          ['arabic', 'ar'],
+          ['hangul', 'ko'],
+          ['devanagari', 'hi'],
+          ['cyrillic', 'ru']
+        ]) {
+          if (SCRIPT_REGEX[script].test(segment)) {
+            return { text: segment, lang };
+          }
         }
-      }
-      
-      // Only return if we have reasonable confidence (at least 3 matches)
-      return bestMatch.score >= 3 ? bestMatch.lang : null;
-    }
+        
+        // Check for CJK
+        if (SCRIPT_REGEX.cjk.test(segment)) {
+          const chineseChars = (segment.match(/[\u4e00-\u9fff]/g) || []).length;
+          const japaneseChars = (segment.match(/[\u3040-\u309f\u30a0-\u30ff]/g) || []).length;
+          return { 
+            text: segment, 
+            lang: chineseChars > japaneseChars ? 'zh' : 'ja'
+          };
+        }
 
-    // Step 1: Detect language
-    const detectedLang = detectLanguage(originalMessage);
-    
-    // Step 2: If message is English, return as-is
-    if (detectedLang === 'en') {
-      await supabase
-        .from('messages')
-        .update({ 
-          translated_message: originalMessage,
-          original_language: 'en'
-        })
-        .eq('id', id);
-
-      return res.status(200).json({ 
-        messages: [{ 
-          response: originalMessage, 
-          original_language: 'en'
-        }]
+        // Word-based detection for other languages
+        const textLower = segment.toLowerCase();
+        let bestMatch = { lang: null, score: 0 };
+        
+        for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
+          const score = words.filter(word => 
+            new RegExp(`\\b${word}\\b`).test(textLower)
+          ).length;
+          
+          if (score > bestMatch.score) {
+            bestMatch = { lang, score };
+          }
+        }
+        
+        return {
+          text: segment,
+          lang: bestMatch.score >= 3 ? bestMatch.lang : 'en' // Default to English if uncertain
+        };
       });
     }
 
-    // Step 3: For non-English messages, translate to English
-    let sourceLang = detectedLang;
-    let translationNeeded = true;
-
-    // Additional English check if detection failed
-    if (!sourceLang) {
-      const englishWordCount = LANGUAGE_DETECTION.en.filter(word => 
-        new RegExp(`\\b${word}\\b`, 'i').test(originalMessage)
-      ).length;
-      const wordCount = originalMessage.split(/\s+/).length || 1;
-      
-      if ((englishWordCount / wordCount) > 0.3) {
-        sourceLang = 'en';
-        translationNeeded = false;
+    // Process mixed-language content
+    const languageSegments = detectLanguageSegments(originalMessage);
+    
+    // Group consecutive segments of same language
+    const groupedSegments = [];
+    let currentGroup = null;
+    
+    for (const segment of languageSegments) {
+      if (!currentGroup || currentGroup.lang !== segment.lang) {
+        currentGroup = { lang: segment.lang, text: segment.text };
+        groupedSegments.push(currentGroup);
       } else {
-        // If we can't detect, use the most common non-English languages
-        sourceLang = 'es'; // Default to Spanish if uncertain
+        currentGroup.text += ' ' + segment.text;
       }
     }
 
-    // If no translation needed (it's English)
-    if (!translationNeeded) {
-      await supabase
-        .from('messages')
-        .update({ 
-          translated_message: originalMessage,
-          original_language: 'en'
-        })
-        .eq('id', id);
+    // Process each language group
+    const processedSegments = await Promise.all(
+      groupedSegments.map(async ({ lang, text }) => {
+        // If English, return as-is
+        if (lang === 'en') {
+          return { text, lang };
+        }
+        
+        // Translate non-English segments
+        const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${lang}|en&key=${MYMEMORY_API_KEY}`;
+        const translateResponse = await fetch(translateUrl);
+        
+        if (!translateResponse.ok) {
+          console.error(`Translation failed for ${lang}:`, text);
+          return { text, lang };
+        }
+        
+        const translateResult = await translateResponse.json();
+        return {
+          text: translateResult.responseData?.translatedText || text,
+          lang
+        };
+      })
+    );
 
-      return res.status(200).json({ 
-        messages: [{ 
-          response: originalMessage, 
-          original_language: 'en'
-        }]
-      });
-    }
-
-    // Step 4: Translate to English
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang}|en&key=${MYMEMORY_API_KEY}`;
+    // Combine results
+    const translatedText = processedSegments.map(s => s.text).join(' ');
+    const detectedLangs = [...new Set(groupedSegments.map(s => s.lang))].join(',');
     
-    const translateResponse = await fetch(translateUrl);
-    if (!translateResponse.ok) {
-      throw new Error(`API request failed with status ${translateResponse.status}`);
-    }
-
-    const translateResult = await translateResponse.json();
-    const translatedText = translateResult.responseData?.translatedText || originalMessage;
-    const finalSourceLang = translateResult.responseData?.detectedSourceLanguage || sourceLang;
-
     // Store results
     await supabase
       .from('messages')
       .update({ 
         translated_message: translatedText,
-        original_language: finalSourceLang
+        original_language: detectedLangs
       })
       .eq('id', id);
 
     res.status(200).json({ 
       messages: [{ 
         response: translatedText, 
-        original_language: finalSourceLang
+        original_language: detectedLangs
       }]
     });
   } catch (err) {
@@ -184,14 +168,14 @@ export default async function handler(req, res) {
       .from('messages')
       .update({ 
         translated_message: originalMessage,
-        original_language: 'unknown'
+        original_language: 'mixed'
       })
       .eq('id', id);
 
     res.status(200).json({ 
       messages: [{ 
         response: originalMessage, 
-        original_language: 'unknown'
+        original_language: 'mixed'
       }]
     });
   }
