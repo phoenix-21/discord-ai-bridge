@@ -78,7 +78,7 @@ export default async function handler(req, res) {
       return bestMatch.score >= 3 ? bestMatch.lang : null;
     }
 
-    // Step 1: Detect language (won't detect German)
+    // Step 1: Detect language
     const detectedLang = detectLanguage(originalMessage);
     
     // Step 2: If message is English, return as-is
@@ -113,6 +113,13 @@ export default async function handler(req, res) {
       if ((englishWordCount / wordCount) > 0.3) {
         sourceLang = 'en';
         translationNeeded = false;
+      } else {
+        // If we can't detect the language, make an educated guess
+        // Check for common German characters/words as a last resort
+        if (/[äöüß]/.test(originalMessage) || 
+            /\b(der|die|das|und|ich|du|wir)\b/i.test(originalMessage)) {
+          sourceLang = 'de';
+        }
       }
     }
 
@@ -135,9 +142,9 @@ export default async function handler(req, res) {
     }
 
     // Step 4: Translate to English
-    // If we detected a language, use that. Otherwise, let MyMemory auto-detect.
-    const langPair = sourceLang ? `${sourceLang}|en` : 'en|en';
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${langPair}&key=${MYMEMORY_API_KEY}`;
+    // Ensure we have a valid source language (default to German if still unknown)
+    const validSourceLang = sourceLang || 'de';
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${validSourceLang}|en&key=${MYMEMORY_API_KEY}`;
     
     const translateResponse = await fetch(translateUrl);
     if (!translateResponse.ok) {
@@ -145,14 +152,8 @@ export default async function handler(req, res) {
     }
 
     const translateResult = await translateResponse.json();
-    let translatedText = originalMessage;
-    let finalSourceLang = 'unknown';
-
-    if (translateResult.responseData) {
-      translatedText = translateResult.responseData.translatedText || originalMessage;
-      finalSourceLang = translateResult.responseData.detectedSourceLanguage || 
-                       (sourceLang ? sourceLang : 'unknown');
-    }
+    const translatedText = translateResult.responseData?.translatedText || originalMessage;
+    const finalSourceLang = translateResult.responseData?.detectedSourceLanguage || validSourceLang;
 
     // Store results
     await supabase
