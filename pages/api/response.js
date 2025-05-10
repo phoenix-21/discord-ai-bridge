@@ -1,18 +1,26 @@
 import { supabase } from '../../lib/supabaseClient';
 
-// Enhanced language detection configuration
+// Comprehensive language detection configuration
 const LANGUAGE_DETECTION = {
   en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'], // English
   de: ['der', 'die', 'das', 'und', 'in', 'den', 'von', 'zu', 'mit', 'sich'], // German
-  fr: ['le', 'la', 'de', 'un', 'à', 'être', 'et', 'en', 'avoir', 'que'], // French
+  ar: ['ال', 'في', 'من', 'على', 'أن', 'هو', 'إلى', 'كان', 'هذا', 'مع'], // Arabic
+  pt: ['o', 'a', 'de', 'e', 'que', 'em', 'do', 'da', 'para', 'com'], // Portuguese
+  hi: ['और', 'से', 'है', 'की', 'में', 'हैं', 'को', 'पर', 'यह', 'था'], // Hindi
+  it: ['il', 'la', 'di', 'e', 'che', 'in', 'un', 'a', 'per', 'con'], // Italian
+  ko: ['이', '그', '에', '를', '의', '은', '는', '과', '와', '하다'], // Korean
+  tl: ['ang', 'ng', 'sa', 'na', 'ay', 'at', 'mga', 'si', 'ito', 'ni'], // Filipino (Tagalog)
   zh: ['的', '一', '是', '在', '不', '了', '有', '和', '人', '这'], // Chinese
   ja: ['の', 'に', 'は', 'を', 'た', 'が', 'で', 'し', 'て', 'ます'], // Japanese
   ru: ['и', 'в', 'не', 'на', 'я', 'что', 'он', 'с', 'по', 'как'], // Russian
   es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se']  // Spanish
 };
 
-// Special characters for CJK languages
+// Special characters for CJK and Arabic scripts
 const CJK_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/;
+const ARABIC_REGEX = /[\u0600-\u06FF]/;
+const HANGUL_REGEX = /[\uac00-\ud7af]/;
+const DEVANAGARI_REGEX = /[\u0900-\u097F]/;
 
 export default async function handler(req, res) {
   const { data, error } = await supabase
@@ -38,13 +46,21 @@ export default async function handler(req, res) {
   try {
     const MYMEMORY_API_KEY = "803876a9e4f30ab69842";
 
-    // Enhanced language detection function
+    // Comprehensive language detection function
     function detectLanguage(text) {
       if (!text || typeof text !== 'string') return null;
       
-      // First check for CJK characters (Chinese, Japanese, Korean)
+      // Check for Arabic script first
+      if (ARABIC_REGEX.test(text)) return 'ar';
+      
+      // Check for Korean (Hangul)
+      if (HANGUL_REGEX.test(text)) return 'ko';
+      
+      // Check for Hindi (Devanagari)
+      if (DEVANAGARI_REGEX.test(text)) return 'hi';
+      
+      // Check for CJK characters (Chinese, Japanese)
       if (CJK_REGEX.test(text)) {
-        // Count Chinese vs Japanese characters for more precise detection
         const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
         const japaneseChars = (text.match(/[\u3040-\u309f\u30a0-\u30ff]/g) || []).length;
         
@@ -59,6 +75,9 @@ export default async function handler(req, res) {
       let bestMatch = { lang: null, score: 0 };
       
       for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
+        // Skip CJK languages already checked
+        if (['zh', 'ja', 'ko', 'hi', 'ar'].includes(lang)) continue;
+        
         const score = words.filter(word => 
           new RegExp(`\\b${word}\\b`).test(textLower)
         ).length;
