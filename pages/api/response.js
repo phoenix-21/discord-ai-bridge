@@ -1,21 +1,21 @@
 import { supabase } from '../../lib/supabaseClient';
 
-// Language detection configuration (German removed from detection)
+// Language detection configuration (without German)
 const LANGUAGE_DETECTION = {
-  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'], // English
-  ar: ['ال', 'في', 'من', 'على', 'أن', 'هو', 'إلى', 'كان', 'هذا', 'مع'], // Arabic
-  pt: ['o', 'a', 'de', 'e', 'que', 'em', 'do', 'da', 'para', 'com'], // Portuguese
-  hi: ['और', 'से', 'है', 'की', 'में', 'हैं', 'को', 'पर', 'यह', 'था'], // Hindi
-  it: ['il', 'la', 'di', 'e', 'che', 'in', 'un', 'a', 'per', 'con'], // Italian
-  ko: ['이', '그', '에', '를', '의', '은', '는', '과', '와', '하다'], // Korean
-  tl: ['ang', 'ng', 'sa', 'na', 'ay', 'at', 'mga', 'si', 'ito', 'ni'], // Filipino (Tagalog)
-  zh: ['的', '一', '是', '在', '不', '了', '有', '和', '人', '这'], // Chinese
-  ja: ['の', 'に', 'は', 'を', 'た', 'が', 'で', 'し', 'て', 'ます'], // Japanese
-  ru: ['и', 'в', 'не', 'на', 'я', 'что', 'он', 'с', 'по', 'как'], // Russian
-  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se']  // Spanish
+  en: ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I'],
+  ar: ['ال', 'في', 'من', 'على', 'أن', 'هو', 'إلى', 'كان', 'هذا', 'مع'],
+  pt: ['o', 'a', 'de', 'e', 'que', 'em', 'do', 'da', 'para', 'com'],
+  hi: ['और', 'से', 'है', 'की', 'में', 'हैं', 'को', 'पर', 'यह', 'था'],
+  it: ['il', 'la', 'di', 'e', 'che', 'in', 'un', 'a', 'per', 'con'],
+  ko: ['이', '그', '에', '를', '의', '은', '는', '과', '와', '하다'],
+  tl: ['ang', 'ng', 'sa', 'na', 'ay', 'at', 'mga', 'si', 'ito', 'ni'],
+  zh: ['的', '一', '是', '在', '不', '了', '有', '和', '人', '这'],
+  ja: ['の', 'に', 'は', 'を', 'た', 'が', 'で', 'し', 'て', 'ます'],
+  ru: ['и', 'в', 'не', 'на', 'я', 'что', 'он', 'с', 'по', 'как'],
+  es: ['el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'ser', 'se']
 };
 
-// Special characters for CJK and Arabic scripts
+// Special characters regex
 const CJK_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/;
 const ARABIC_REGEX = /[\u0600-\u06FF]/;
 const HANGUL_REGEX = /[\uac00-\ud7af]/;
@@ -48,32 +48,22 @@ export default async function handler(req, res) {
     function detectLanguage(text) {
       if (!text || typeof text !== 'string') return null;
       
-      // Check for Arabic script first
+      // Check for special scripts first
       if (ARABIC_REGEX.test(text)) return 'ar';
-      
-      // Check for Korean (Hangul)
       if (HANGUL_REGEX.test(text)) return 'ko';
-      
-      // Check for Hindi (Devanagari)
       if (DEVANAGARI_REGEX.test(text)) return 'hi';
-      
-      // Check for CJK characters (Chinese, Japanese)
       if (CJK_REGEX.test(text)) {
         const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
         const japaneseChars = (text.match(/[\u3040-\u309f\u30a0-\u30ff]/g) || []).length;
-        
         if (chineseChars > japaneseChars) return 'zh';
         if (japaneseChars > 0) return 'ja';
       }
-
-      // Check Cyrillic for Russian
       if (/[\u0400-\u04FF]/.test(text)) return 'ru';
 
       const textLower = text.toLowerCase();
       let bestMatch = { lang: null, score: 0 };
       
       for (const [lang, words] of Object.entries(LANGUAGE_DETECTION)) {
-        // Skip CJK languages already checked
         if (['zh', 'ja', 'ko', 'hi', 'ar'].includes(lang)) continue;
         
         const score = words.filter(word => 
@@ -85,7 +75,6 @@ export default async function handler(req, res) {
         }
       }
       
-      // Only return if we have reasonable confidence (at least 3 matches)
       return bestMatch.score >= 3 ? bestMatch.lang : null;
     }
 
@@ -110,7 +99,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 3: For non-English messages (or undetected messages including German), translate to English
+    // Step 3: For non-English messages or undetected messages (including German)
     let sourceLang = detectedLang;
     let translationNeeded = true;
 
@@ -125,8 +114,8 @@ export default async function handler(req, res) {
         sourceLang = 'en';
         translationNeeded = false;
       } else {
-        // If we can't detect, let the translation API auto-detect (including German)
-        sourceLang = 'auto';
+        // If we can't detect, default to German ('de') since that's what we want to translate
+        sourceLang = 'de';
       }
     }
 
@@ -148,8 +137,10 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 4: Translate to English (will handle German via auto-detection)
-    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${sourceLang === 'auto' ? 'auto' : sourceLang}|en&key=${MYMEMORY_API_KEY}`;
+    // Step 4: Translate to English
+    // Use detected language if available, otherwise default to German
+    const langPair = sourceLang ? `${sourceLang}|en` : 'de|en';
+    const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${langPair}&key=${MYMEMORY_API_KEY}`;
     
     const translateResponse = await fetch(translateUrl);
     if (!translateResponse.ok) {
@@ -158,7 +149,7 @@ export default async function handler(req, res) {
 
     const translateResult = await translateResponse.json();
     const translatedText = translateResult.responseData?.translatedText || originalMessage;
-    const finalSourceLang = translateResult.responseData?.detectedSourceLanguage || sourceLang;
+    const finalSourceLang = translateResult.responseData?.detectedSourceLanguage || sourceLang || 'de';
 
     // Store results
     await supabase
@@ -170,7 +161,7 @@ export default async function handler(req, res) {
       .eq('id', id);
 
     res.status(200).json({ 
-      messages:[{ 
+      messages: [{ 
         response: translatedText, 
         original_language: finalSourceLang
       }]
