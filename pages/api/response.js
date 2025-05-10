@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ 
       messages: [{ 
         response: translated_message, 
-        original_language: 'unknown' // fallback in case it's already stored
+        original_language: 'unknown'
       }]
     });
   }
@@ -27,38 +27,45 @@ export default async function handler(req, res) {
     const detectUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=|en&key=${MYMEMORY_API_KEY}`;
     const detectResponse = await fetch(detectUrl);
     const detectResult = await detectResponse.json();
-    const detectedLang = detectResult.responseData?.match?.lang || detectResult.responseData?.detectedSourceLanguage || 'unknown';
+    let detectedLang = detectResult.responseData?.match?.lang || detectResult.responseData?.detectedSourceLanguage || null;
 
-    // If the message is already in English, no translation
+    // Validate the detected language (must be 2-letter ISO code)
+    const validLangCodes = ['es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko', 'ar']; // Add more as needed
+    if (!detectedLang || !validLangCodes.includes(detectedLang)) {
+      detectedLang = 'auto'; // Let MyMemory handle auto-detection during translation
+    }
+
+    // If the message is already in English, no translation needed
     if (detectedLang === 'en') {
       return res.status(200).json({ 
         messages: [{ 
           response: originalMessage, 
-          original_language: detectedLang 
+          original_language: 'en'
         }]
       });
     }
 
-    // Translate only if not English, using detected language
+    // Translate using detected language or auto-detection
     const translateUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(originalMessage)}&langpair=${detectedLang}|en&key=${MYMEMORY_API_KEY}`;
     const translateResponse = await fetch(translateUrl);
     const translateResult = await translateResponse.json();
 
     const translatedMessage = translateResult.responseData?.translatedText || originalMessage;
+    const finalDetectedLang = translateResult.responseData?.detectedSourceLanguage || detectedLang || 'unknown';
 
     // Store both the translation and detected language
     await supabase
       .from('messages')
       .update({ 
         translated_message: translatedMessage,
-        original_language: detectedLang 
+        original_language: finalDetectedLang
       })
       .eq('id', id);
 
     res.status(200).json({ 
       messages: [{ 
         response: translatedMessage, 
-        original_language: detectedLang 
+        original_language: finalDetectedLang
       }]
     });
   } catch (err) {
